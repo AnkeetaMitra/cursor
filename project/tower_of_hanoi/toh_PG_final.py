@@ -159,7 +159,7 @@ def demonstrate_graphplan_advantage():
         print(f"  Valid: {'✓' if is_valid else '✗'}")
         print(f"  Solve time: {solve_time:.4f}s")
         
-        if is_valid and len(solution) <= 31:  # Show plan for reasonable sizes
+        if is_valid and len(solution) <= 63:  # Show plan for up to 6 disks
             print(f"\nOptimal Plan (transitions):")
             for i, move in enumerate(solution):
                 parts = move.split('_')
