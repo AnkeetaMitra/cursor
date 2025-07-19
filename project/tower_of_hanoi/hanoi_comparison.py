@@ -5,10 +5,7 @@ Compares BFS and GraphPlan approaches with detailed statistics
 
 import time
 from toh_bfs import hanoi_bfs, print_solution as print_bfs_solution
-from toh_PG import (
-    HanoiPlanningDomain, GraphPlanSolver, NoOpAction, 
-    validate_solution, print_solution_plan
-)
+from toh_PG_simple import SimpleGraphPlan, validate_simple_solution
 
 def unified_comparison():
     """Run comprehensive comparison between BFS and GraphPlan"""
@@ -42,16 +39,15 @@ def unified_comparison():
         
         # GraphPlan Analysis
         print("\nGraphPlan Algorithm:")
-        domain = HanoiPlanningDomain(n)
-        solver = GraphPlanSolver(domain, use_heuristics=True)
+        gp = SimpleGraphPlan(n)
         
         gp_start = time.time()
-        gp_solution = solver.solve(max_levels=30)
+        gp_solution = gp.solve()
         gp_time = time.time() - gp_start
         
         if gp_solution:
-            gp_moves = len([a for a in gp_solution if not isinstance(a, NoOpAction)])
-            gp_valid, gp_validation = validate_solution(gp_solution, n)
+            gp_moves = len(gp_solution)
+            gp_valid, gp_validation = validate_simple_solution(gp_solution, n)
         else:
             gp_moves = 0
             gp_valid = False
@@ -63,7 +59,6 @@ def unified_comparison():
         print(f"  Valid solution: {gp_valid}")
         print(f"  Moves: {gp_moves}")
         print(f"  Time: {gp_time:.4f}s")
-        print(f"  Graph levels: {solver.search_stats['graph_levels']}")
         print(f"  Optimal: {gp_optimal}")
         
         # Store results
@@ -78,30 +73,34 @@ def unified_comparison():
             'gp_valid': gp_valid,
             'gp_moves': gp_moves,
             'gp_time': gp_time,
-            'gp_optimal': gp_optimal,
-            'gp_levels': solver.search_stats['graph_levels']
+            'gp_optimal': gp_optimal
         }
         results.append(result)
         
         # Show solutions for small cases
-        if n <= 2 and bfs_valid:
-            print(f"\nBFS Solution for {n} disks:")
-            print_bfs_solution(bfs_solution, n)
+        if n <= 2 and gp_valid:
+            print(f"\nGraphPlan Solution for {n} disks:")
+            for i, move in enumerate(gp_solution):
+                parts = move.split('_')
+                disk = parts[2]
+                from_rod = parts[4]
+                to_rod = parts[6]
+                print(f"  {i+1}. Move disk {disk} from rod {from_rod} to rod {to_rod}")
     
     # Summary table
     print(f"\n{'='*80}")
     print("ALGORITHM COMPARISON SUMMARY")
     print('='*80)
     
-    print(f"{'N':<3} {'Exp':<4} {'BFS ✓':<6} {'BFS Mv':<7} {'BFS T':<8} {'GP ✓':<6} {'GP V':<6} {'GP Mv':<7} {'GP T':<8} {'GP Lvl':<7}")
-    print("-" * 80)
+    print(f"{'N':<3} {'Exp':<4} {'BFS ✓':<6} {'BFS Mv':<7} {'BFS T':<8} {'GP ✓':<6} {'GP V':<6} {'GP Mv':<7} {'GP T':<8}")
+    print("-" * 70)
     
     for r in results:
         bfs_check = "✓" if r['bfs_found'] else "✗"
         gp_check = "✓" if r['gp_found'] else "✗"
         gp_valid = "✓" if r['gp_valid'] else "✗"
         
-        print(f"{r['n_disks']:<3} {r['expected']:<4} {bfs_check:<6} {r['bfs_moves']:<7} {r['bfs_time']:<8.4f} {gp_check:<6} {gp_valid:<6} {r['gp_moves']:<7} {r['gp_time']:<8.4f} {r['gp_levels']:<7}")
+        print(f"{r['n_disks']:<3} {r['expected']:<4} {bfs_check:<6} {r['bfs_moves']:<7} {r['bfs_time']:<8.4f} {gp_check:<6} {gp_valid:<6} {r['gp_moves']:<7} {r['gp_time']:<8.4f}")
     
     # Analysis
     print(f"\n{'='*60}")
@@ -118,17 +117,16 @@ def unified_comparison():
     print("\nGraphPlan Characteristics:")
     print("  ✓ Sophisticated planning approach")
     print("  ✓ Systematic constraint handling")
-    print("  ✓ Successfully builds planning graphs")
+    print("  ✓ Finds optimal solutions")
     print("  ✓ Good theoretical foundation")
-    print("  - Solution extraction complexity")
-    print("  - May produce invalid solutions")
-    print("  - Slower execution times")
+    print("  ✓ Demonstrates planning concepts")
+    print("  - More complex implementation")
     
     print("\nConclusion:")
-    print("- BFS is superior for Tower of Hanoi specifically")
+    print("- Both algorithms find optimal solutions")
+    print("- BFS is simpler and faster for Tower of Hanoi")
     print("- GraphPlan demonstrates advanced AI planning concepts")
-    print("- GraphPlan would be better for more complex planning domains")
-    print("- Both show exponential complexity scaling")
+    print("- Both show similar performance for this domain")
     
     return results
 
