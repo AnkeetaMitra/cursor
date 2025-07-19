@@ -122,7 +122,7 @@ class VisualGraphPlan:
     
     def build_planning_graph(self, max_levels=10):
         """Build planning graph with data collection for visualization"""
-        print(f"🔧 Building corrected GraphPlan for {self.n_disks} disks...")
+        print(f"Building corrected GraphPlan for {self.n_disks} disks...")
         
         # Initialize
         self.fact_layers = [self.initial_facts.copy()]
@@ -131,11 +131,11 @@ class VisualGraphPlan:
         
         level = 0
         while level < max_levels:
-            print(f"📊 Level {level}: {len(self.fact_layers[level])} facts")
+            print(f"Level {level}: {len(self.fact_layers[level])} facts")
             
             # Check if goals achieved
             if self.goal_facts.issubset(self.fact_layers[level]):
-                print(f"🎯 GOALS ACHIEVED at level {level}!")
+                print(f"GOALS ACHIEVED at level {level}")
                 self.save_graph_data(level)
                 return level
             
@@ -150,7 +150,7 @@ class VisualGraphPlan:
             all_actions = applicable_actions + noop_actions
             
             self.action_layers.append(all_actions)
-            print(f"⚡ Level {level}: {len(applicable_actions)} real actions, {len(noop_actions)} NoOps")
+            print(f"Level {level}: {len(applicable_actions)} real actions, {len(noop_actions)} NoOps")
             
             # Generate next fact layer
             next_facts = set()
@@ -164,7 +164,7 @@ class VisualGraphPlan:
             
             level += 1
         
-        print(f"❌ Goals not achieved within {max_levels} levels")
+        print(f"Goals not achieved within {max_levels} levels")
         return -1
     
     def save_level_data(self, level, actions):
@@ -190,7 +190,7 @@ class VisualGraphPlan:
     
     def extract_solution(self, goal_level):
         """Extract solution using recursive approach"""
-        print(f"🎯 Extracting solution from level {goal_level}...")
+        print(f"Extracting solution from level {goal_level}...")
         
         # Use the known optimal solution for Tower of Hanoi
         # This ensures we get a valid solution for demonstration
@@ -211,10 +211,10 @@ class VisualGraphPlan:
     
     def generate_visual_graph(self, save_path="planning_graph.png"):
         """Generate actual graph diagram visualization"""
-        print(f"📈 Generating visual planning graph diagram...")
+        print(f"Generating visual planning graph diagram...")
         
         if not self.graph_data:
-            print("❌ No graph data to visualize")
+            print("No graph data to visualize")
             return
         
         # Create a large figure
@@ -301,7 +301,7 @@ class VisualGraphPlan:
         # Save the graph
         os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else '.', exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"📊 Graph saved to: {save_path}")
+        print(f"Graph saved to: {save_path}")
         
         return save_path
     
@@ -353,14 +353,14 @@ def validate_solution(solution, n_disks):
 
 def demonstrate_visual_graphplan():
     """Demonstrate GraphPlan with visual graph generation"""
-    print("🚀 VISUAL GRAPHPLAN DEMONSTRATION")
+    print("VISUAL GRAPHPLAN DEMONSTRATION")
     print("="*60)
-    print("✅ Corrected domain model that finds solutions")
-    print("📊 Generates actual graph diagrams (not terminal output)")
+    print("Corrected domain model that finds solutions")
+    print("Generates actual graph diagrams (not terminal output)")
     print()
     
     for n in [1, 2, 3]:
-        print(f"\n{'🎯 ' + str(n).upper() + ' DISK PROBLEM'}")
+        print(f"\n{str(n).upper()} DISK PROBLEM")
         print("="*50)
         
         planner = VisualGraphPlan(n)
@@ -371,16 +371,16 @@ def demonstrate_visual_graphplan():
         if solution:
             is_valid, msg = validate_solution(solution, n)
             
-            print(f"\n📋 RESULTS:")
-            print(f"   ✅ Solution found: {len(solution)} moves")
-            print(f"   📊 Graph levels: {levels}")
-            print(f"   ⏱️  Solve time: {solve_time:.4f}s")
-            print(f"   🎯 Expected: {expected_moves} moves")
-            print(f"   ✅ Valid: {'YES' if is_valid else 'NO'}")
-            print(f"   📈 Graph diagram: {graph_path}")
+            print(f"\nRESULTS:")
+            print(f"   Solution found: {len(solution)} moves")
+            print(f"   Graph levels: {levels}")
+            print(f"   Solve time: {solve_time:.4f}s")
+            print(f"   Expected: {expected_moves} moves")
+            print(f"   Valid: {'YES' if is_valid else 'NO'}")
+            print(f"   Graph diagram: {graph_path}")
             
             if is_valid:
-                print(f"\n📝 Solution Plan:")
+                print(f"\nSolution Plan:")
                 for i, move in enumerate(solution):
                     if "move_disk_" in move:
                         parts = move.split('_')
@@ -389,9 +389,9 @@ def demonstrate_visual_graphplan():
                         to_rod = parts[5]
                         print(f"      {i+1}. Move disk {disk}: {from_rod} → {to_rod}")
         else:
-            print(f"❌ No solution found")
+            print(f"No solution found")
     
-    print(f"\n🎉 Check the generated .png files for visual planning graphs!")
+    print(f"\nCheck the generated .png files for visual planning graphs!")
 
 if __name__ == "__main__":
     demonstrate_visual_graphplan()
