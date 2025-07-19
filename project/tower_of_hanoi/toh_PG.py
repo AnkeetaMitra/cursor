@@ -912,5 +912,47 @@ def compare_with_bfs_comprehensive():
     return comparison_results
 
 if __name__ == "__main__":
-    # Run comprehensive comparison with BFS
-    compare_with_bfs_comprehensive()
+    print("GRAPHPLAN TOWER OF HANOI SOLVER")
+    print("="*50)
+    
+    for n in [1, 2, 3, 4]:
+        print(f"\n{'-'*30}")
+        print(f"SOLVING {n} DISKS")
+        print('-'*30)
+        
+        domain = HanoiPlanningDomain(n)
+        solver = GraphPlanSolver(domain, use_heuristics=True)
+        
+        start_time = time.time()
+        solution = solver.solve(max_levels=20)
+        solve_time = time.time() - start_time
+        
+        if solution:
+            valid_moves = [a for a in solution if not isinstance(a, NoOpAction)]
+            is_valid, validation_msg = validate_solution(solution, n)
+            
+            print(f"Solution found: {len(valid_moves)} moves in {solve_time:.4f}s")
+            print(f"Valid: {'✓' if is_valid else '✗'} - {validation_msg}")
+            print(f"Graph levels: {solver.search_stats['graph_levels']}")
+            
+            if is_valid:
+                print("\nPlan (transitions):")
+                for i, action in enumerate(valid_moves):
+                    # Parse action to show clear transitions
+                    if '_onto_' in action.name:
+                        parts = action.name.split('_')
+                        disk = parts[2]
+                        from_rod = parts[4]
+                        target_disk = parts[6]
+                        to_rod = parts[8]
+                        print(f"  {i+1}. Move disk {disk}: {from_rod} → {to_rod} (onto disk {target_disk})")
+                    else:
+                        parts = action.name.split('_')
+                        disk = parts[2]
+                        from_rod = parts[4]
+                        to_rod = parts[6]
+                        print(f"  {i+1}. Move disk {disk}: {from_rod} → {to_rod}")
+            else:
+                print("Solution is invalid!")
+        else:
+            print(f"No solution found within 20 levels after {solve_time:.4f}s")
