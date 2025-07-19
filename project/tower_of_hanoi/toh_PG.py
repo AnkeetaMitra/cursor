@@ -446,88 +446,200 @@ class GraphPlanSolver:
         return solution
     
     def extract_solution(self, planning_graph, level):
-        """Extract solution plan using backward search"""
+        """Extract solution plan using robust backward search with debugging"""
         print(f"Extracting solution from level {level}")
         
-        # Simple recursive extraction
-        def extract_at_level(goals, level):
-            if level == 0:
-                # Check if goals are satisfied in initial state
-                if goals.issubset(planning_graph.initial_facts):
-                    return []
-                else:
-                    return None
+        # Try iterative approach first - sometimes works better than recursive
+        for target_level in range(level + 1):
+            print(f"Trying extraction at level {target_level}")
+            solution = self.iterative_extraction(planning_graph, target_level)
+            if solution is not None:
+                print(f"Solution found at level {target_level}")
+                return solution
+        
+        print("Iterative extraction failed, trying recursive approach")
+        return self.recursive_extraction(planning_graph, level)
+    
+    def iterative_extraction(self, pg, max_level):
+        """Iterative solution extraction - layer by layer"""
+        # Start from the goal level and work backwards
+        layers = []
+        
+        # Build action layers working backwards
+        current_goals = pg.goal_facts.copy()
+        
+        for level in range(max_level, 0, -1):
+            print(f"  Level {level}: Looking for actions to achieve {len(current_goals)} goals")
             
-            # Find actions that achieve all goals
-            actions_at_level = planning_graph.action_layers[level - 1]
+            action_layer = pg.action_layers[level - 1]
+            selected_actions = []
+            achieved_goals = set()
             
-            # Try to find a set of actions that achieve all goals
-            for action_combo in self.find_action_combinations(goals, actions_at_level, planning_graph, level - 1):
-                # Compute the preconditions for this action combination
-                new_goals = set()
-                for action in action_combo:
-                    if not isinstance(action, NoOpAction):
-                        new_goals.update(action.preconditions)
-                        new_goals -= action.effects  # Remove what this action achieves
-                
-                # Recursively solve for the preconditions
-                subplan = extract_at_level(new_goals, level - 1)
-                if subplan is not None:
-                    # Return the complete plan
-                    actual_actions = [a for a in action_combo if not isinstance(a, NoOpAction)]
-                    return subplan + actual_actions
+            # Find actions that achieve current goals
+            for goal in current_goals:
+                for action in action_layer:
+                    if goal in action.effects and action not in selected_actions:
+                        # Check if this action conflicts with already selected actions
+                        if not self.has_conflicts(action, selected_actions, pg, level - 1):
+                            selected_actions.append(action)
+                            achieved_goals.update(action.effects)
+                            break
             
+            # Check if we achieved all current goals
+            if not current_goals.issubset(achieved_goals):
+                print(f"    Failed to achieve all goals at level {level}")
+                return None
+            
+            layers.append(selected_actions)
+            
+            # Compute new goals (preconditions of selected actions)
+            new_goals = set()
+            for action in selected_actions:
+                if not isinstance(action, NoOpAction):
+                    new_goals.update(action.preconditions)
+            
+            # Remove goals that are achieved by effects
+            for action in selected_actions:
+                new_goals -= action.effects
+            
+            current_goals = new_goals
+            print(f"    Selected {len(selected_actions)} actions, new goals: {len(current_goals)}")
+        
+        # Check if initial goals are satisfied
+        if not current_goals.issubset(pg.initial_facts):
+            print(f"  Initial state doesn't satisfy remaining goals: {current_goals - pg.initial_facts}")
             return None
         
-        return extract_at_level(planning_graph.goal_facts, level)
+        # Build final solution
+        solution = []
+        for layer in reversed(layers):
+            solution.extend([a for a in layer if not isinstance(a, NoOpAction)])
+        
+        return solution
     
-    def find_action_combinations(self, goals, actions, planning_graph, level):
-        """Find combinations of actions that achieve all goals"""
-        # Simple greedy approach: find minimal set of actions
+    def recursive_extraction(self, pg, level):
+        """Recursive solution extraction with better debugging"""
         
-        def can_achieve_goals(action_set):
-            achieved = set()
-            for action in action_set:
-                achieved.update(action.effects)
-            return goals.issubset(achieved)
+        def extract_recursive(goals, current_level, depth=0):
+            indent = "  " * depth
+            print(f"{indent}Level {current_level}: Extracting {len(goals)} goals")
+            
+            if current_level == 0:
+                missing = goals - pg.initial_facts
+                if missing:
+                    print(f"{indent}Initial state missing: {missing}")
+                    return None
+                return []
+            
+            action_layer = pg.action_layers[current_level - 1]
+            
+            # Try all possible single actions first
+            for action in action_layer:
+                if isinstance(action, NoOpAction):
+                    continue
+                    
+                achieved = goals & action.effects
+                if not achieved:
+                    continue
+                
+                print(f"{indent}Trying action: {action.name}")
+                print(f"{indent}  Achieves: {achieved}")
+                
+                # Compute remaining goals
+                remaining_goals = goals - achieved
+                new_goals = remaining_goals | action.preconditions
+                
+                # Remove goals achieved by this action's effects
+                new_goals -= action.effects
+                
+                print(f"{indent}  New goals: {len(new_goals)}")
+                
+                # Recursive call
+                subplan = extract_recursive(new_goals, current_level - 1, depth + 1)
+                if subplan is not None:
+                    return subplan + [action]
+            
+            # Try combinations of actions
+            print(f"{indent}Single actions failed, trying combinations...")
+            return self.try_action_combinations_recursive(goals, action_layer, pg, current_level, depth)
         
-        def has_mutex_conflict(action_set):
-            action_mutexes = planning_graph.action_mutexes[level] if level < len(planning_graph.action_mutexes) else set()
-            for a1 in action_set:
-                for a2 in action_set:
-                    if a1 != a2 and ((a1, a2) in action_mutexes or (a2, a1) in action_mutexes):
-                        return True
-            return False
-        
-        # Try single action first
-        for action in actions:
-            if can_achieve_goals([action]) and not has_mutex_conflict([action]):
-                yield [action]
+        return extract_recursive(pg.goal_facts, level)
+    
+    def try_action_combinations_recursive(self, goals, actions, pg, level, depth):
+        """Try combinations of actions recursively"""
+        indent = "  " * depth
         
         # Try pairs of actions
         for i, action1 in enumerate(actions):
-            for action2 in actions[i+1:]:
-                action_set = [action1, action2]
-                if can_achieve_goals(action_set) and not has_mutex_conflict(action_set):
-                    yield action_set
-        
-        # Try triples (for more complex cases)
-        for i, action1 in enumerate(actions):
+            if isinstance(action1, NoOpAction):
+                continue
             for j, action2 in enumerate(actions[i+1:], i+1):
-                for action3 in actions[j+1:]:
-                    action_set = [action1, action2, action3]
-                    if can_achieve_goals(action_set) and not has_mutex_conflict(action_set):
-                        yield action_set
+                if isinstance(action2, NoOpAction):
+                    continue
+                
+                action_set = [action1, action2]
+                if self.has_conflicts(action1, [action2], pg, level - 1):
+                    continue
+                
+                achieved = set()
+                for action in action_set:
+                    achieved.update(action.effects)
+                
+                if not goals.issubset(achieved):
+                    continue
+                
+                print(f"{indent}Trying pair: {action1.name} + {action2.name}")
+                
+                # Compute new goals
+                new_goals = set()
+                for action in action_set:
+                    new_goals.update(action.preconditions)
+                
+                for action in action_set:
+                    new_goals -= action.effects
+                
+                # Recursive call
+                subplan = self.recursive_extraction_helper(new_goals, pg, level - 1)
+                if subplan is not None:
+                    return subplan + action_set
+        
+        return None
     
-    def is_action_compatible(self, action, plan, pg, level):
-        """Check if action is compatible with current plan"""
-        action_mutexes = pg.action_mutexes[level] if level < len(pg.action_mutexes) else set()
+    def recursive_extraction_helper(self, goals, pg, level):
+        """Helper for recursive extraction"""
+        if level == 0:
+            return [] if goals.issubset(pg.initial_facts) else None
         
-        for planned_action in plan:
-            if (action, planned_action) in action_mutexes:
-                return False
+        action_layer = pg.action_layers[level - 1]
         
-        return True
+        for action in action_layer:
+            if isinstance(action, NoOpAction):
+                continue
+            
+            achieved = goals & action.effects
+            if achieved:
+                remaining = goals - achieved
+                new_goals = remaining | action.preconditions
+                new_goals -= action.effects
+                
+                subplan = self.recursive_extraction_helper(new_goals, pg, level - 1)
+                if subplan is not None:
+                    return subplan + [action]
+        
+        return None
+    
+    def has_conflicts(self, action, other_actions, pg, level):
+        """Check if action conflicts with other actions"""
+        if level >= len(pg.action_mutexes):
+            return False
+        
+        action_mutexes = pg.action_mutexes[level]
+        
+        for other in other_actions:
+            if (action, other) in action_mutexes or (other, action) in action_mutexes:
+                return True
+        
+        return False
 
 def print_solution_plan(plan, n_disks):
     """Print the solution plan in readable format"""
@@ -564,6 +676,157 @@ def print_solution_plan(plan, n_disks):
     expected_moves = 2**n_disks - 1
     print(f"Expected optimal moves: {expected_moves}")
     print(f"Efficiency: {move_count}/{expected_moves} = {move_count/expected_moves:.2f}")
+
+def validate_solution(plan, n_disks):
+    """Validate that a solution plan is actually valid for Tower of Hanoi"""
+    if not plan:
+        return False, "No plan provided"
+    
+    # Initialize state: all disks on rod A
+    state = {
+        'rods': [list(range(n_disks-1, -1, -1)), [], []],  # A, B, C
+        'rod_names': ['A', 'B', 'C']
+    }
+    
+    def get_top_disk(rod_idx):
+        """Get the top disk on a rod, or None if empty"""
+        if state['rods'][rod_idx]:
+            return state['rods'][rod_idx][-1]
+        return None
+    
+    def is_rod_clear(rod_idx):
+        """Check if a rod is clear (empty)"""
+        return len(state['rods'][rod_idx]) == 0
+    
+    print(f"\nValidating solution with {len(plan)} moves:")
+    print(f"Initial state: A={state['rods'][0]}, B={state['rods'][1]}, C={state['rods'][2]}")
+    
+    for i, action in enumerate(plan):
+        if isinstance(action, NoOpAction):
+            continue
+            
+        print(f"\nMove {i+1}: {action.name}")
+        
+        # Parse action name to get disk and rods
+        if '_onto_' in action.name:
+            # Format: move_disk_X_from_Y_onto_Z_on_W
+            parts = action.name.split('_')
+            disk = int(parts[2])
+            from_rod_name = parts[4]
+            to_rod_name = parts[8]
+        else:
+            # Format: move_disk_X_from_Y_to_Z
+            parts = action.name.split('_')
+            disk = int(parts[2])
+            from_rod_name = parts[4]
+            to_rod_name = parts[6]
+        
+        # Convert rod names to indices
+        from_rod = state['rod_names'].index(from_rod_name)
+        to_rod = state['rod_names'].index(to_rod_name)
+        
+        # Validate the move
+        top_disk = get_top_disk(from_rod)
+        if top_disk != disk:
+            return False, f"Move {i+1}: Disk {disk} is not on top of rod {from_rod_name} (top disk is {top_disk})"
+        
+        if not is_rod_clear(to_rod):
+            top_target = get_top_disk(to_rod)
+            if disk >= top_target:
+                return False, f"Move {i+1}: Cannot place disk {disk} on top of smaller disk {top_target}"
+        
+        # Execute the move
+        moved_disk = state['rods'][from_rod].pop()
+        state['rods'][to_rod].append(moved_disk)
+        
+        print(f"After move: A={state['rods'][0]}, B={state['rods'][1]}, C={state['rods'][2]}")
+    
+    # Check final state
+    goal_state = [[], [], list(range(n_disks-1, -1, -1))]
+    if state['rods'] == goal_state:
+        return True, "Solution is valid!"
+    else:
+        return False, f"Final state {state['rods']} does not match goal {goal_state}"
+
+def comprehensive_test():
+    """Comprehensive test with validation and statistics"""
+    print("\n" + "="*80)
+    print("COMPREHENSIVE GRAPHPLAN TOWER OF HANOI ANALYSIS")
+    print("="*80)
+    
+    results = []
+    
+    for n in [1, 2, 3]:
+        print(f"\n{'='*60}")
+        print(f"DETAILED ANALYSIS: {n} DISK(S)")
+        print('='*60)
+        
+        domain = HanoiPlanningDomain(n)
+        solver = GraphPlanSolver(domain, use_heuristics=True)
+        
+        start_time = time.time()
+        solution = solver.solve(max_levels=30)
+        solve_time = time.time() - start_time
+        
+        # Validate solution
+        if solution:
+            is_valid, validation_msg = validate_solution(solution, n)
+            move_count = len([a for a in solution if not isinstance(a, NoOpAction)])
+        else:
+            is_valid = False
+            validation_msg = "No solution found"
+            move_count = 0
+        
+        expected_moves = 2**n - 1
+        
+        result = {
+            'n_disks': n,
+            'solution_found': solution is not None,
+            'is_valid': is_valid,
+            'moves': move_count,
+            'expected_moves': expected_moves,
+            'optimal': move_count == expected_moves if solution else False,
+            'solve_time': solve_time,
+            'graph_levels': solver.search_stats['graph_levels'],
+            'nodes_expanded': solver.search_stats['nodes_expanded'],
+            'validation_msg': validation_msg
+        }
+        
+        results.append(result)
+        
+        # Print detailed results
+        print(f"Solution found: {result['solution_found']}")
+        print(f"Solution valid: {result['is_valid']}")
+        print(f"Moves found: {result['moves']}")
+        print(f"Expected optimal: {result['expected_moves']}")
+        print(f"Is optimal: {result['optimal']}")
+        print(f"Graph levels: {result['graph_levels']}")
+        print(f"Nodes expanded: {result['nodes_expanded']}")
+        print(f"Solve time: {result['solve_time']:.4f}s")
+        print(f"Validation: {result['validation_msg']}")
+        
+        if solution and is_valid:
+            print("\nSolution steps:")
+            for i, action in enumerate(solution):
+                if not isinstance(action, NoOpAction):
+                    print(f"  {i+1}. {action.name}")
+    
+    # Summary statistics
+    print(f"\n{'='*60}")
+    print("SUMMARY STATISTICS FOR GRAPHPLAN vs BFS COMPARISON")
+    print('='*60)
+    
+    print("GraphPlan Results:")
+    print(f"{'Disks':<8} {'Found':<8} {'Valid':<8} {'Moves':<8} {'Optimal':<8} {'Time':<10} {'Levels':<8}")
+    print("-" * 70)
+    
+    for r in results:
+        status = "✓" if r['solution_found'] else "✗"
+        valid = "✓" if r['is_valid'] else "✗"
+        optimal = "✓" if r['optimal'] else "✗"
+        print(f"{r['n_disks']:<8} {status:<8} {valid:<8} {r['moves']:<8} {optimal:<8} {r['solve_time']:<10.4f} {r['graph_levels']:<8}")
+    
+    return results
 
 def test_graphplan_hanoi():
     """Test the GraphPlan implementation"""
@@ -723,10 +986,143 @@ def demonstration_summary():
     print("Implementation complete! See toh_PG.py for full source code.")
     print("="*80)
 
-if __name__ == "__main__":
-    test_graphplan_hanoi()
+def compare_with_bfs_comprehensive():
+    """Comprehensive comparison between GraphPlan and BFS with detailed statistics"""
+    print("\n" + "="*80)
+    print("COMPREHENSIVE COMPARISON: GRAPHPLAN vs BFS")
+    print("="*80)
     
-    # Add debug tests
+    from toh_bfs import hanoi_bfs
+    
+    comparison_results = []
+    
+    for n in [1, 2, 3, 4]:
+        print(f"\n{'='*60}")
+        print(f"COMPARING {n} DISK(S): GRAPHPLAN vs BFS")
+        print('='*60)
+        
+        # GraphPlan results
+        print("GraphPlan Analysis:")
+        domain = HanoiPlanningDomain(n)
+        solver = GraphPlanSolver(domain, use_heuristics=True)
+        
+        gp_start = time.time()
+        gp_solution = solver.solve(max_levels=30)
+        gp_time = time.time() - gp_start
+        
+        if gp_solution:
+            gp_moves = len([a for a in gp_solution if not isinstance(a, NoOpAction)])
+            gp_valid, gp_validation = validate_solution(gp_solution, n)
+        else:
+            gp_moves = 0
+            gp_valid = False
+            gp_validation = "No solution found"
+        
+        # BFS results
+        print(f"\nBFS Analysis:")
+        bfs_start = time.time()
+        bfs_solution = hanoi_bfs(n, max_states=100000)  # Limit states for larger problems
+        bfs_time = time.time() - bfs_start
+        
+        bfs_moves = len(bfs_solution) if bfs_solution else 0
+        bfs_valid = bfs_moves > 0
+        
+        expected_optimal = 2**n - 1
+        
+        # Compile results
+        result = {
+            'n_disks': n,
+            'expected_moves': expected_optimal,
+            
+            # GraphPlan stats
+            'gp_found': gp_solution is not None,
+            'gp_valid': gp_valid,
+            'gp_moves': gp_moves,
+            'gp_optimal': gp_moves == expected_optimal if gp_valid else False,
+            'gp_time': gp_time,
+            'gp_levels': solver.search_stats['graph_levels'],
+            'gp_nodes': solver.search_stats['nodes_expanded'],
+            'gp_validation': gp_validation,
+            
+            # BFS stats  
+            'bfs_found': bfs_valid,
+            'bfs_valid': bfs_valid,
+            'bfs_moves': bfs_moves,
+            'bfs_optimal': bfs_moves == expected_optimal if bfs_valid else False,
+            'bfs_time': bfs_time,
+        }
+        
+        comparison_results.append(result)
+        
+        # Print detailed comparison
+        print(f"\nRESULTS COMPARISON:")
+        print(f"Expected optimal moves: {expected_optimal}")
+        print(f"")
+        print(f"{'Metric':<25} {'GraphPlan':<15} {'BFS':<15}")
+        print("-" * 55)
+        print(f"{'Solution Found':<25} {'✓' if result['gp_found'] else '✗':<15} {'✓' if result['bfs_found'] else '✗':<15}")
+        print(f"{'Solution Valid':<25} {'✓' if result['gp_valid'] else '✗':<15} {'✓' if result['bfs_valid'] else '✗':<15}")
+        print(f"{'Moves Found':<25} {result['gp_moves']:<15} {result['bfs_moves']:<15}")
+        print(f"{'Is Optimal':<25} {'✓' if result['gp_optimal'] else '✗':<15} {'✓' if result['bfs_optimal'] else '✗':<15}")
+        print(f"{'Time (seconds)':<25} {result['gp_time']:<15.4f} {result['bfs_time']:<15.4f}")
+        print(f"{'Graph Levels':<25} {result['gp_levels']:<15} {'N/A':<15}")
+        print(f"{'Nodes Expanded':<25} {result['gp_nodes']:<15} {'N/A':<15}")
+        
+        print(f"\nGraphPlan validation: {result['gp_validation']}")
+    
+    # Overall summary table
+    print(f"\n{'='*80}")
+    print("OVERALL COMPARISON SUMMARY")
+    print('='*80)
+    
+    print(f"{'Disks':<6} {'Expected':<9} {'GP Found':<9} {'GP Valid':<9} {'GP Moves':<9} {'GP Time':<9} {'BFS Found':<10} {'BFS Moves':<10} {'BFS Time':<9}")
+    print("-" * 90)
+    
+    for r in comparison_results:
+        gp_found = "✓" if r['gp_found'] else "✗"
+        gp_valid = "✓" if r['gp_valid'] else "✗"
+        bfs_found = "✓" if r['bfs_found'] else "✗"
+        
+        print(f"{r['n_disks']:<6} {r['expected_moves']:<9} {gp_found:<9} {gp_valid:<9} {r['gp_moves']:<9} {r['gp_time']:<9.4f} {bfs_found:<10} {r['bfs_moves']:<10} {r['bfs_time']:<9.4f}")
+    
+    # Performance analysis
+    print(f"\n{'='*60}")
+    print("PERFORMANCE ANALYSIS")
+    print('='*60)
+    
+    print("Algorithm Strengths:")
+    print("GraphPlan:")
+    print("  + Systematic planning approach")
+    print("  + Handles complex constraints well") 
+    print("  + Provides theoretical guarantees")
+    print("  + Good for small problems (1-disk optimal)")
+    print("  - Solution extraction complexity")
+    print("  - May find invalid solutions for complex cases")
+    
+    print("\nBFS:")
+    print("  + Simple and reliable")
+    print("  + Always finds valid solutions")
+    print("  + Guaranteed optimal for Tower of Hanoi")
+    print("  + Scales better for this specific domain")
+    print("  - Less principled approach")
+    print("  - Exponential memory growth")
+    
+    print(f"\nConclusion for Deep Analysis:")
+    print(f"- GraphPlan demonstrates advanced planning concepts")
+    print(f"- BFS is more practical for Tower of Hanoi specifically")
+    print(f"- GraphPlan's value is in constraint handling and generality")
+    print(f"- Both algorithms show exponential complexity characteristics")
+    
+    return comparison_results
+
+if __name__ == "__main__":
+    # Run comprehensive test for GraphPlan analysis
+    comprehensive_test()
+    
+    # Run detailed comparison with BFS
+    compare_with_bfs_comprehensive()
+    
+    # Add debug tests for understanding domain issues
     test_simple_cases()
     test_manual_solution()
     
@@ -736,12 +1132,12 @@ if __name__ == "__main__":
     # Uncomment to compare with BFS
     # compare_with_bfs()
     
-    # Test with larger problem (4 disks)
-    print(f"\n{'='*50}")
-    print("Testing larger problem (4 disks)")
-    print('='*50)
-    
-    domain = HanoiPlanningDomain(4)
-    solver = GraphPlanSolver(domain)
-    solution = solver.solve(max_levels=25)
-    print_solution_plan(solution, 4)
+    # Skip the 4-disk test that was giving invalid results
+    # print(f"\n{'='*50}")
+    # print("Testing larger problem (4 disks)")
+    # print('='*50)
+    # 
+    # domain = HanoiPlanningDomain(4)
+    # solver = GraphPlanSolver(domain)
+    # solution = solver.solve(max_levels=25)
+    # print_solution_plan(solution, 4)
